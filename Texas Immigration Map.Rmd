@@ -1,0 +1,121 @@
+---
+title: "Texas Immigration Map"
+author: "Matthew Worthington, M.Ed."
+date: "4/25/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidycensus)
+library(tidyverse)
+library(janitor)
+library(censusapi)
+library(leaflet)
+library(RColorBrewer)
+library(scales)
+library(leaflet.extras)
+library(sf)
+library(viridis)
+options(tigris_use_cache = TRUE)
+readRenviron("~/.Renviron")
+censuskey <- Sys.getenv("CENSUS_API_KEY")
+census_api_key(censuskey)
+# census_api_key("c12e51f54773cfa14b8d94d156edc9dfe8070cec" , install=TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+
+apis <- listCensusApis()
+
+vars_remove <- "B05006_001|B05006_002|B05006_003|PR_|B05006_004|B05006_013|B05006_021|B05006_028|B05006_047|B05006_048|B05006_049|B05006_056|B05006_067|B05006_078|B05006_091|B05006_092|B05006_098|B05006_101| B05006_106|B05006_109|B05006_117|B05006_123|B05006_124|B05006_125|B05006_138|B05006_148|B05006_160"
+  
+foreign_born_vars <- load_variables(2017, "acs5") %>%
+  filter(str_detect(name, "B05006")) %>% 
+  filter(!str_detect(name, vars_remove))
+
+foreign_born_tx <- get_acs(geography = "county", 
+                           table = "B05006", 
+                           state = "TX",
+                           cache_table = TRUE,
+                           geometry=TRUE,
+                           summary_var = "B05006_001")
+
+pop_by_birth_raw <- foreign_born_tx %>% 
+  filter(variable != "B05006_139") %>% #Exclude Mexico
+  filter(!str_detect(variable, vars_remove)) %>% #Exclude Continent & Regional Estimates
+  select(-moe, -summary_moe) %>%
+  clean_names() %>% 
+  group_by(geoid) %>%
+  slice(which.max(estimate)) %>%
+  left_join(foreign_born_vars, by=c("variable"="name")) 
+
+pop_by_birth <- pop_by_birth_raw %>% 
+  mutate(name = gsub(pattern=", Texas", replacement = "",x=name)) %>% 
+  mutate(place = gsub(pattern="Estimate!!Total!!", replacement = "",x=label)) %>% 
+  mutate(place = gsub(pattern="^Africa!!|^Asia!!|^Americas!!|^Europe!!", replacement = "",x=place)) %>% 
+  mutate(place = gsub(pattern="^Latin America!!|^Northern Europe!!|^Eastern Asia!!", replacement = "",x=place)) %>%
+  separate(place, into = c("place1","place2"), sep="!!") %>%
+  mutate(country = case_when(
+    !is.na(place2) ~ place2,
+    is.na(place2) ~ place1,
+  )) %>% 
+  select(-label, -variable, -concept,region=place1,-place2) %>% 
+  mutate(region = gsub(pattern="^Northern |^Western |^Middle |^Southern |^South Central ", replacement = "",x=region)) %>% 
+  mutate(region = gsub(pattern="^Eastern |n.e.c.$ |^South Eastern ", replacement = "",x=region)) %>% 
+  mutate(continent = case_when( 
+   str_detect(region, "South America") ~ "South Americas",
+   str_detect(region, "Central America|America|Caribbean") ~ "North America",
+   str_detect(region, "United Kingdom|Europe|Europe n.e.c.|Sweden") ~ "Europe",
+   str_detect(region, "Asia|China|Korea|Japan") ~ "Asia",
+   region == "Africa" ~ "Africa",
+   region == "Oceania" ~ "Austrailia"
+  )) %>% 
+  mutate(continent = gsub(pattern="South Americas", replacement = "South America",x=continent))
+
+labels <- sprintf("<a style = 'font-family: -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; font-size: 24px; color:#3d3d3d'><strong>%s</strong></a> <br/> <strong>Country:</strong> %s",
+                  pop_by_birth$name,
+                  pop_by_birth$country) %>%
+  lapply(htmltools::HTML)
+
+pal <- colorFactor(palette=c("#d9eaf5", "#4e79a7", "#40515c", "#c8d0d9", "#f1ce63", "#e46769", "#ffbc79"), 
+                   levels = c("Europe", "Asia", "South America", "Austrailia", "Africa", "North America", "Arctic"))
+
+pop_map <- leaflet(pop_by_birth) %>%
+  addTiles(urlTemplate = "https://api.mapbox.com/styles/v1/mrw03b/cji21nw3e03ht2rqz4kgte0ea/tiles/256/{z}/{x}/{y}@2x?access_token=pk.eyJ1IjoibXJ3MDNiIiwiYSI6IlYwb2FiOWcifQ.RWUm2a87fEC9XrDxzvZKKg",
+           attribution = 'Maps by <a href="http://www.mapbox.com/">Mapbox</a>') %>%
+  addPolygons(data = pop_by_birth,
+              stroke = 0,
+              smoothFactor = 0,
+              fill = TRUE,
+              # color = "white",
+              fillColor = ~pal(continent),
+              fillOpacity = 1,
+              label = labels,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "normal", padding = "3px 8px"),
+                textsize = "18px",
+                direction = "auto")) %>% 
+  addLegend("bottomleft", pal = pal, values = ~continent,
+                      title = "Continent",
+                      opacity = 1)
+
+htmlwidgets::saveWidget(widget = pop_map, file = "tx_immigration_map.html", selfcontained = TRUE, background = "white")
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

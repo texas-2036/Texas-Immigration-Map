@@ -17,6 +17,7 @@ library(scales)
 library(leaflet.extras)
 library(sf)
 library(viridis)
+library(widgetframe)
 options(tigris_use_cache = TRUE)
 readRenviron("~/.Renviron")
 censuskey <- Sys.getenv("CENSUS_API_KEY")
@@ -79,7 +80,7 @@ pop_by_birth <- pop_by_birth_raw %>%
   )) %>% 
   mutate(continent = gsub(pattern="South Americas", replacement = "South America",x=continent))
 
-labels <- sprintf("<a style = 'font-family: 'Titillium Web', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; font-size: 24px; font-weight: 700; color:#3d3d3d'><strong>%s</strong></a> <br/> <strong>Country:</strong> %s",
+labels <- sprintf("<a style = 'font-family: 'Titillium Web', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; font-size: 28px; font-weight: 700; color:#3d3d3d'><strong>%s</strong></a> <br/> <strong>Country:</strong> %s",
                   pop_by_birth$name,
                   pop_by_birth$country) %>%
   lapply(htmltools::HTML)
@@ -87,25 +88,41 @@ labels <- sprintf("<a style = 'font-family: 'Titillium Web', -apple-system, Blin
 pal <- colorFactor(palette=c("#a3cce9", "#4e79a7", "#40515c", "#c8d0d9", "#f1ce63", "#e46769", "#ffbc79"), 
                    levels = c("Europe", "Asia", "South America", "Austrailia", "Africa", "North America", "Arctic"))
 
-pop_map <- leaflet(pop_by_birth) %>%
-  addTiles(urlTemplate = "https://api.mapbox.com/styles/v1/mrw03b/cji21nw3e03ht2rqz4kgte0ea/tiles/256/{z}/{x}/{y}@2x?access_token=pk.eyJ1IjoibXJ3MDNiIiwiYSI6IlYwb2FiOWcifQ.RWUm2a87fEC9XrDxzvZKKg",
+pop_map <- leaflet(pop_by_birth, width = "100%", height = "600px", options = leafletOptions(zoomControl = FALSE, minZoom = 6, maxZoom = 6)) %>%
+  addTiles(urlTemplate = "https://api.mapbox.com/styles/v1/mrw03b/cjvfr58le99nk1gp3ryxmnvd3/tiles/256/{z}/{x}/{y}@2x?access_token=pk.eyJ1IjoibXJ3MDNiIiwiYSI6IlYwb2FiOWcifQ.RWUm2a87fEC9XrDxzvZKKg",
            attribution = 'Tiles by <a href="http://www.mapbox.com/">Mapbox</a> | Map by <a href="http://www.texas2036.org/">Texas 2036</a>') %>%
   addPolygons(data = pop_by_birth,
               stroke = 0,
               smoothFactor = 0,
               fill = TRUE,
-              # color = "white",
               fillColor = ~pal(continent),
               fillOpacity = 1,
+              group='pop_by_birth',
               label = labels,
               labelOptions = labelOptions(
                 style = list("font-weight" = "normal", padding = "3px 8px"),
                 textsize = "18px",
                 direction = "auto")) %>% 
   addLegend("bottomleft", pal = pal, values = ~continent,
-            title = "Continent", opacity = 1)
+            title = "Continent", opacity = 1) %>%
+  addControl("<a style='font-size: 22px; font-weight:900'>Instructions</a></br><hr><strong>Find Your County:</strong> Click the <span class='fa fa-search'></span> icon </br><strong>Reset The Map:</strong> Click the <span class='fa fa-home'></span> icon
+</div>",position='topleft') %>% 
+  addSearchFeatures(
+    targetGroups = 'pop_by_birth',
+    options = searchFeaturesOptions(
+      textPlaceholder="Type Your County Name...", moveToLocation = FALSE,
+      openPopup = TRUE, firstTipSubmit = TRUE,
+      autoCollapse = TRUE, hideMarkerOnCollapse = FALSE)) %>% 
+    # addResetMapButton()
+  addEasyButton(easyButton(
+    icon = 'fa-home fa-lg',
+    title = 'Reset View',
+    onClick = JS("function(btn, map){ map.setView([31.3686,-99.9018],6); }"))) %>%
+  setMapWidgetStyle(list(background='white'))
 
-htmlwidgets::saveWidget(widget = pop_map, file = "tx_immigration_map.html", selfcontained = TRUE, background = "white")
+  pop_map
+
+htmlwidgets::saveWidget(frameableWidget(pop_map), file = "tx_immigration_map.html", selfcontained = TRUE, background = "white")
 
 ```
 
